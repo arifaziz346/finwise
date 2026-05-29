@@ -1,0 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+    }
+}
+
+@layer components {
+    .fw-card {
+        @apply rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800;
+    }
+
+    .fw-btn-primary {
+        @apply rounded-xl bg-indigo-600 px-4 py-2.5 font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60;
+    }
+
+    .fw-input {
+        @apply rounded-xl border border-slate-200 px-4 py-2.5 outline-none transition focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-700;
+    }
+}
+@keyframes fw-button-progress {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(220%); }
+}
+
+.fw-button-progress {
+    animation: fw-button-progress 0.9s ease-in-out infinite;
+}
