@@ -46,6 +46,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/income/summary', [IncomeController::class, 'summary']);
         Route::apiResource('income', IncomeController::class);
         Route::apiResource('income-sources', IncomeSourceController::class)->except(['show']);
+        Route::get('/expenses/form-options', [ExpenseController::class, 'formOptions']);
         Route::apiResource('expenses', ExpenseController::class);
         Route::get('/expenses-report', [ExpenseController::class, 'report']);
         Route::get('/expenses-report/csv', [ExpenseController::class, 'reportCsv']);

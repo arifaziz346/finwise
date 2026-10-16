@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useToast } from 'vue-toastification';
+import { Plus } from 'lucide-vue-next';
 import AppLayout from '../components/layout/AppLayout.vue';
 import AppCard from '../components/ui/AppCard.vue';
 import AppButton from '../components/ui/AppButton.vue';
@@ -10,6 +11,7 @@ import AppModal from '../components/ui/AppModal.vue';
 import AppTable from '../components/ui/AppTable.vue';
 import AppBadge from '../components/ui/AppBadge.vue';
 import AppConfirmModal from '../components/ui/AppConfirmModal.vue';
+import ExpenseFormSheet from '../components/ui/ExpenseFormSheet.vue';
 import api from '../services/api';
 import { money } from '../utils/currency';
 import { date } from '../utils/date';
@@ -32,6 +34,12 @@ const errors = ref({});
 const filters = reactive({ search: '', category_id: '', source_id: '', date_from: '', date_to: '', is_blocked: '', month: new Date().toISOString().slice(0, 7), page: 1 });
 const form = ref({});
 const selectedIds = ref([]);
+
+// Expense entry gets its own mobile-first sheet with category suggestions.
+const expenseSheetOpen = ref(false);
+const expenseEditing = ref(null);
+const expenseErrors = ref({});
+const expenseOptions = ref({ suggestions: [], categories: [], defaults: {}, payment_methods: [] });
 
 const isIncome = computed(() => props.slug === 'income' || props.slug === 'income-categories');
 const isExpense = computed(() => props.slug === 'expenses' || props.slug === 'categories');
@@ -59,6 +67,12 @@ const resetForm = () => {
 const loadCategories = async () => {
     const { data } = await api.get(categoryEndpoint.value, { params: { per_page: 100, search: filters.search, is_blocked: filters.is_blocked } });
     categories.value = data.data ?? data;
+};
+
+/** Category suggestions + smart defaults for the quick-entry sheet. */
+const loadExpenseOptions = async () => {
+    const { data } = await api.get('/expenses/form-options');
+    expenseOptions.value = data;
 };
 
 const load = async () => {
@@ -98,6 +112,43 @@ const runWithProgress = async (key, action) => {
     }
 };
 
+// ------------------------------------------------------- expense quick entry
+
+const openExpenseSheet = (row = null) => {
+    expenseErrors.value = {};
+    expenseEditing.value = row;
+    expenseSheetOpen.value = true;
+};
+
+const closeExpenseSheet = () => {
+    expenseSheetOpen.value = false;
+    expenseEditing.value = null;
+    expenseErrors.value = {};
+};
+
+const saveExpense = async (payload) => {
+    await runWithProgress('expense-save', async () => {
+        const { category_name, ...body } = payload;
+
+        try {
+            if (expenseEditing.value) {
+                await api.put(`/expenses/${expenseEditing.value.id}`, body);
+                toast.success('Expense updated');
+            } else {
+                await api.post('/expenses', body);
+                toast.success(`${category_name ?? 'Expense'} · ${money(body.amount)} added`);
+            }
+
+            closeExpenseSheet();
+            // Refresh suggestions so the sheet learns from what was just logged.
+            await Promise.all([load(), loadExpenseOptions()]);
+        } catch (error) {
+            expenseErrors.value = error.response?.data?.errors ?? {};
+            toast.error(error.response?.data?.message ?? 'Unable to save the expense');
+        }
+    });
+};
+
 const toggleSelectAll = () => {
     selectedIds.value = allVisibleSelected.value ? [] : [...visibleIds.value];
 };
@@ -117,8 +168,21 @@ const validate = () => {
     return !Object.keys(next).length;
 };
 
-const openCreate = () => { resetForm(); modal.value = true; };
+const openCreate = () => {
+    // Expenses use the dedicated mobile-first sheet with category suggestions.
+    if (isExpense.value && mode.value === 'entries') {
+        openExpenseSheet(null);
+        return;
+    }
+    resetForm();
+    modal.value = true;
+};
+
 const openEdit = (row) => {
+    if (isExpense.value && mode.value === 'entries') {
+        openExpenseSheet(row);
+        return;
+    }
     editing.value = row;
     errors.value = {};
     form.value = { ...row, source_id: row.source_id ?? row.source?.id, category_id: row.category_id ?? row.category?.id };
@@ -203,9 +267,31 @@ const changePage = (direction) => {
     return runWithProgress(direction < 0 ? 'previous' : 'next', load);
 };
 
-watch(() => props.slug, () => { mode.value = ['categories', 'income-categories'].includes(props.slug) ? 'categories' : 'entries'; filters.page = 1; selectedIds.value = []; resetForm(); load(); });
-watch(mode, () => { filters.page = 1; selectedIds.value = []; resetForm(); load(); });
-onMounted(() => { resetForm(); load(); });
+const needsExpenseOptions = computed(() => props.slug === 'expenses');
+
+const bootstrap = async () => {
+    resetForm();
+    await load();
+    if (needsExpenseOptions.value) await loadExpenseOptions();
+};
+
+watch(() => props.slug, async () => {
+    mode.value = ['categories', 'income-categories'].includes(props.slug) ? 'categories' : 'entries';
+    filters.page = 1;
+    selectedIds.value = [];
+    expenseSheetOpen.value = false;
+    await bootstrap();
+});
+
+watch(mode, async () => {
+    filters.page = 1;
+    selectedIds.value = [];
+    resetForm();
+    await load();
+    if (needsExpenseOptions.value && mode.value === 'entries') await loadExpenseOptions();
+});
+
+onMounted(bootstrap);
 </script>
 
 <template>
@@ -218,7 +304,9 @@ onMounted(() => { resetForm(); load(); });
             <div class="flex flex-wrap gap-2">
                 <AppButton v-if="!isBudget" :variant="mode === 'entries' ? 'primary' : 'secondary'" @click="mode = 'entries'">Entries</AppButton>
                 <AppButton v-if="!isBudget" :variant="mode === 'categories' ? 'primary' : 'secondary'" @click="mode = 'categories'">Categories</AppButton>
-                <AppButton @click="openCreate">Add {{ mode === 'categories' ? 'Category' : title }}</AppButton>
+                <AppButton class="hidden lg:inline-flex" @click="openCreate">
+                    {{ isExpense && mode === 'entries' ? 'Add expense' : `Add ${mode === 'categories' ? 'Category' : title}` }}
+                </AppButton>
             </div>
         </div>
 
@@ -264,7 +352,44 @@ onMounted(() => { resetForm(); load(); });
                     <AppButton variant="secondary" @click="ask('delete')">Delete</AppButton>
                 </div>
             </div>
-            <AppTable v-if="!loading">
+            <!-- Phones: card list. Tablets and up: the dense table. -->
+            <div v-if="!loading && mode === 'entries' && !rows.length" class="py-12 text-center text-sm text-slate-500">
+                Nothing here yet. Tap “Add expense” to record your first entry.
+            </div>
+
+            <ul v-if="!loading && mode === 'entries' && rows.length" class="grid gap-2 lg:hidden">
+                <li
+                    v-for="row in rows"
+                    :key="row.id"
+                    class="flex items-center gap-3 rounded-2xl border border-slate-200 p-3 transition active:bg-slate-50 dark:border-slate-700 dark:active:bg-slate-700/40"
+                    @click="openEdit(row)"
+                >
+                    <span
+                        v-if="isExpense"
+                        class="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-xs font-bold text-white"
+                        :style="{ backgroundColor: row.category?.color || '#6366F1' }"
+                    >
+                        {{ (row.category?.name || '?').charAt(0).toUpperCase() }}
+                    </span>
+                    <span v-else class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                        {{ (row.source?.name || '?').charAt(0).toUpperCase() }}
+                    </span>
+
+                    <div class="min-w-0 flex-1">
+                        <p class="truncate text-sm font-semibold">{{ row.category?.name || row.source?.name || 'Uncategorised' }}</p>
+                        <p class="truncate text-xs text-slate-500">
+                            {{ date(row.expense_date || row.received_date) }}<template v-if="row.description"> · {{ row.description }}</template>
+                        </p>
+                    </div>
+
+                    <div class="shrink-0 text-right">
+                        <p class="font-mono text-sm font-semibold" :class="isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100'">{{ money(row.amount) }}</p>
+                        <p v-if="row.is_blocked" class="text-[11px] font-medium text-amber-600 dark:text-amber-400">Blocked</p>
+                    </div>
+                </li>
+            </ul>
+
+            <AppTable v-if="!loading && mode === 'categories'" class="hidden lg:block">
                 <template #head>
                     <tr>
                         <th class="w-12 px-4 py-3">
@@ -288,6 +413,39 @@ onMounted(() => { resetForm(); load(); });
                     <td class="px-4 py-3"><div class="flex flex-wrap gap-3"><button class="text-indigo-600" @click="openEdit(row)">Edit</button><button class="text-amber-600" @click="ask('toggle', row)">{{ row.is_blocked ? 'Unblock' : 'Block' }}</button><button class="text-red-500" @click="ask('delete', row)">Delete</button></div></td>
                 </tr>
             </AppTable>
+
+            <!-- Desktop table for expenses (the mobile list above replaces it) -->
+            <AppTable v-if="!loading && mode === 'entries' && isExpense && rows.length" class="hidden lg:block">
+                <template #head>
+                    <tr>
+                        <th class="w-12 px-4 py-3">
+                            <input class="h-4 w-4 rounded border-slate-300 text-indigo-600" type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll">
+                        </th>
+                        <th class="px-4 py-3">Category</th>
+                        <th class="px-4 py-3">Note</th>
+                        <th class="px-4 py-3">Amount</th>
+                        <th class="px-4 py-3">Date</th>
+                        <th class="px-4 py-3">Method</th>
+                        <th class="px-4 py-3">Actions</th>
+                    </tr>
+                </template>
+                <tr v-for="row in rows" :key="row.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                    <td class="px-4 py-3">
+                        <input v-model="selectedIds" class="h-4 w-4 rounded border-slate-300 text-indigo-600" type="checkbox" :value="row.id">
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="flex items-center gap-2">
+                            <span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: row.category?.color || '#6366F1' }" />
+                            {{ row.category?.name || 'Uncategorised' }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-500">{{ row.description || '—' }}</td>
+                    <td class="px-4 py-3 font-mono font-semibold">{{ money(row.amount) }}</td>
+                    <td class="px-4 py-3">{{ date(row.expense_date) }}</td>
+                    <td class="px-4 py-3 capitalize text-slate-500">{{ row.payment_method || 'cash' }}<span v-if="row.is_blocked" class="ml-2 text-amber-600">blocked</span></td>
+                    <td class="px-4 py-3"><div class="flex flex-wrap gap-3"><button class="text-indigo-600" @click="openEdit(row)">Edit</button><button class="text-amber-600" @click="ask('toggle', row)">{{ row.is_blocked ? 'Unblock' : 'Block' }}</button><button class="text-red-500" @click="ask('delete', row)">Delete</button></div></td>
+                </tr>
+            </AppTable>
             <div class="mt-4 flex items-center justify-between text-sm text-slate-500">
                 <span>Page {{ meta.current_page ?? 1 }} of {{ meta.last_page ?? 1 }}</span>
                 <div class="flex gap-2"><AppButton variant="secondary" :loading="busy === 'previous'" :disabled="(meta.current_page ?? 1) <= 1" @click="changePage(-1)">Previous</AppButton><AppButton variant="secondary" :loading="busy === 'next'" :disabled="(meta.current_page ?? 1) >= (meta.last_page ?? 1)" @click="changePage(1)">Next</AppButton></div>
@@ -301,15 +459,17 @@ onMounted(() => { resetForm(); load(); });
                     <AppSelect v-if="isIncome" v-model="form.type" label="Type" :options="[{ label: 'Active', value: 'active' }, { label: 'Passive', value: 'passive' }]" />
                     <AppInput v-if="isExpense" v-model="form.color" label="Color" type="color" />
                 </template>
-                <template v-else>
+                <template v-else-if="isIncome">
                     <AppInput v-model="form.amount" label="Amount" type="number" :error="errors.amount?.[0] || errors.amount" />
-                    <AppSelect v-if="isIncome" v-model="form.source_id" label="Category" :options="activeCategoryOptions" :error="errors.source_id?.[0]" />
-                    <AppSelect v-else v-model="form.category_id" label="Category" :options="activeCategoryOptions" />
-                    <AppInput v-if="isIncome" v-model="form.received_date" label="Date" type="date" :error="errors.received_date?.[0] || errors.received_date" />
-                    <AppInput v-if="isExpense" v-model="form.expense_date" label="Date" type="date" :error="errors.expense_date?.[0] || errors.expense_date" />
-                    <AppInput v-if="isBudget" v-model="form.start_date" label="Start Date" type="date" :error="errors.start_date?.[0] || errors.start_date" />
-                    <AppInput v-if="isBudget" v-model="form.end_date" label="End Date" type="date" />
-                    <AppInput v-if="!isBudget" v-model="form.description" label="Note" />
+                    <AppSelect v-model="form.source_id" label="Category" :options="activeCategoryOptions" :error="errors.source_id?.[0] || errors.category_id?.[0]" />
+                    <AppInput v-model="form.received_date" label="Date" type="date" :error="errors.received_date?.[0] || errors.received_date" />
+                    <AppInput v-model="form.description" label="Note" />
+                </template>
+                <template v-else-if="isBudget">
+                    <AppInput v-model="form.amount" label="Amount" type="number" :error="errors.amount?.[0] || errors.amount" />
+                    <AppSelect v-model="form.category_id" label="Category" :options="activeCategoryOptions" :error="errors.category_id?.[0]" />
+                    <AppInput v-model="form.start_date" label="Start Date" type="date" :error="errors.start_date?.[0] || errors.start_date" />
+                    <AppInput v-model="form.end_date" label="End Date" type="date" />
                 </template>
                 <AppButton :loading="busy === 'save'">Save</AppButton>
             </form>
@@ -322,6 +482,28 @@ onMounted(() => { resetForm(); load(); });
             :loading="busy === 'confirm'"
             @close="pending = null"
             @confirm="confirmAction"
+        />
+
+        <!-- Thumb-reachable quick entry on phones -->
+        <button
+            v-if="isExpense && mode === 'entries'"
+            type="button"
+            class="fixed bottom-20 right-4 z-40 grid h-14 w-14 place-items-center rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 transition active:scale-95 lg:hidden"
+            aria-label="Add expense"
+            @click="openExpenseSheet(null)"
+        >
+            <Plus class="h-7 w-7" />
+        </button>
+
+        <ExpenseFormSheet
+            v-if="isExpense && mode === 'entries'"
+            :open="expenseSheetOpen"
+            :options="expenseOptions"
+            :editing="expenseEditing"
+            :loading="busy === 'expense-save'"
+            :errors="expenseErrors"
+            @close="closeExpenseSheet"
+            @saved="saveExpense"
         />
     </AppLayout>
 </template>

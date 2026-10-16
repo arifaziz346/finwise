@@ -29,6 +29,9 @@ class FinanceRequest extends FormRequest
                 'category_id' => [$this->isMethod('post') ? 'required' : 'sometimes', 'integer'],
                 'expense_date' => [$this->isMethod('post') ? 'required' : 'sometimes', 'date'],
                 'description' => ['nullable', 'string', 'max:1000'],
+                'payment_method' => ['sometimes', 'nullable', Rule::in(['cash', 'card', 'online', 'cheque'])],
+                'location' => ['sometimes', 'nullable', 'string', 'max:191'],
+                'account_id' => ['sometimes', 'integer'],
                 'is_blocked' => ['sometimes', 'boolean'],
             ],
             'income-sources.store', 'income-sources.update' => [
