@@ -1,1 +1,0 @@
-var e=(e=0,t=`PKR`)=>`${t} ${Number(e||0).toLocaleString(void 0,{minimumFractionDigits:2,maximumFractionDigits:2})}`;export{e as t};

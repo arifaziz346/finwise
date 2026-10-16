@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth';
 
 const auth = (name) => () => import(`../views/auth/${name}.vue`);
 const DashboardView = () => import('../views/DashboardView.vue');
+const ReportsView = () => import('../views/ReportsView.vue');
 const ResourceView = () => import('../views/ResourceView.vue');
 const ReminderView = () => import('../views/ReminderView.vue');
 const SettingsView = () => import('../views/SettingsView.vue');
@@ -14,6 +15,7 @@ const routes = [
     { path: '/forgot-password', component: auth('ForgotPasswordView') },
     { path: '/reset-password', component: auth('ResetPasswordView') },
     { path: '/dashboard', component: DashboardView, meta: { auth: true } },
+    { path: '/reports', component: ReportsView, meta: { auth: true } },
     ...['income', 'expenses', 'budgets'].map((slug) => ({
         path: `/${slug}`,
         component: ResourceView,

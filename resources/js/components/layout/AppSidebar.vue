@@ -1,12 +1,13 @@
 <script setup>
 import { RouterLink } from 'vue-router';
-import { LayoutDashboard, TrendingUp, TrendingDown, Target, X, Bell, UserRound } from 'lucide-vue-next';
+import { LayoutDashboard, TrendingUp, TrendingDown, Target, X, Bell, UserRound, ChartPie } from 'lucide-vue-next';
 import { useUiStore } from '../../stores/ui';
 
 const ui = useUiStore();
 
 const items = [
     ['Dashboard', '/dashboard', LayoutDashboard],
+    ['Reports', '/reports', ChartPie],
     ['Income', '/income', TrendingUp],
     ['Expenses', '/expenses', TrendingDown],
     ['Budgets', '/budgets', Target],
